@@ -20,10 +20,11 @@ export const getAuthHeaders = (): HeadersInit => {
     return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
 
-// --- API Functions (Real Authentication) ---
+// --- API Functions (Authentication & Sync) ---
 
-// Real Login API Call
+// Real Login API Call (existing)
 export const login = async (email: string, password: string): Promise<void> => {
+    // ... (existing login logic)
     const response = await fetch(`${API_URL}/api/users/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -39,8 +40,9 @@ export const login = async (email: string, password: string): Promise<void> => {
     localStorage.setItem('token', data.token); // Store the REAL token
 };
 
-// Real Register API Call
+// Real Register API Call (existing)
 export const register = async (email: string, password: string, userType: 'BRAND' | 'INFLUENCER' | 'ADMIN'): Promise<void> => {
+    // ... (existing register logic)
     const response = await fetch(`${API_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,7 +59,7 @@ export const register = async (email: string, password: string, userType: 'BRAND
 };
 
 
-// Function to call the sync endpoint
+// Function to call the sync endpoint (existing)
 export const syncSocialAccount = async (platform: string) => {
     const response = await fetch(`${API_URL}/api/social/sync/${platform}`, {
         method: 'POST',
@@ -70,6 +72,21 @@ export const syncSocialAccount = async (platform: string) => {
     if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || `Failed to sync ${platform}`);
+    }
+
+    return response.json();
+};
+
+// 🚀 NEW FUNCTION: Fetch Social Account Details
+export const fetchAccountDetails = async (platform: string) => {
+    const response = await fetch(`${API_URL}/api/social/account/${platform}`, {
+        method: 'GET',
+        headers: getAuthHeaders(), // Only Authorization header needed
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to fetch ${platform} account details.`);
     }
 
     return response.json();
