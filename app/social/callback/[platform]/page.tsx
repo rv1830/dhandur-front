@@ -1,3 +1,5 @@
+// pages/social/callback/[[...platform]].tsx (or SocialCallbackPage.tsx)
+
 'use client';
 
 import { useEffect } from 'react';
@@ -35,7 +37,6 @@ export default function SocialCallbackPage() {
         // --- 2. Get JWT Token (CRITICAL STEP) ---
         const authToken = getToken(); 
         
-        // 🛑 CRITICAL CHECK: Stop if user is not logged in.
         if (!authToken) {
             console.error('Authentication Token is missing. User is not logged in.');
             alert("Login required to link social accounts (JWT missing).");
@@ -43,20 +44,44 @@ export default function SocialCallbackPage() {
             return;
         }
         
-        // --- 3. Extract Platform and Redirect to Backend with Encoded Token ---
+        // --- 3. Extract Platform and PKCE Verifier ---
         const path = window.location.pathname; 
         const platform = path.split('/').pop() || 'instagram';
 
-        // 🚀 FIX: Encode the token for safe transmission
-        const encodedToken = encodeURIComponent(authToken); 
+        let codeVerifier = '';
+        let verifierStorageKey = '';
 
-        // Use the Backend API URL (localhost:5000)
+        if (platform === 'snapchat') {
+            verifierStorageKey = 'snapchat_code_verifier';
+        } else if (platform === 'twitter') {
+            verifierStorageKey = 'twitter_code_verifier';
+        }
+
+        if (verifierStorageKey) {
+            const storedVerifier = localStorage.getItem(verifierStorageKey);
+            if (storedVerifier) {
+                codeVerifier = storedVerifier;
+                localStorage.removeItem(verifierStorageKey); // Clean up
+            } else {
+                console.error(`PKCE Verifier for ${platform} missing!`);
+                alert(`Login failed: PKCE Verifier missing for ${platform}.`);
+                router.push('/');
+                return;
+            }
+        }
+        
+        // 4. Forwarding to Backend
+        const encodedToken = encodeURIComponent(authToken); 
         const API_BASE = process.env.NEXT_PUBLIC_API_URL; 
         
-        // ⚠️ FINAL URL: Sending code, state, AND JWT to the backend for verification
-        const backendUrl = `${API_BASE}/api/social/callback/${platform}?code=${code}&state=${state}&token=${encodedToken}`;
+        let backendUrl = `${API_BASE}/api/social/callback/${platform}?code=${code}&state=${state}&token=${encodedToken}`;
         
-        console.log(`Forwarding to Backend (localhost:5000) with JWT: ${backendUrl}`);
+        // 🛑 PKCE Append
+        if (codeVerifier) {
+            backendUrl += `&code_verifier=${codeVerifier}`;
+        }
+        
+        console.log(`Forwarding to Backend (localhost:5000) with PKCE: ${backendUrl}`);
 
         // Guaranteed redirect to the backend API endpoint
         window.location.replace(backendUrl); 

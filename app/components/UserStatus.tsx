@@ -3,7 +3,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// 💡 fetchAccountDetails को lib/auth.ts से इंपोर्ट करें (जिसे आपने पिछले चरण में जोड़ा था)
 import { login, register, logout, getToken, syncSocialAccount, fetchAccountDetails } from '../lib/auth'; 
 
 // Environment variables (UNCHANGED)
@@ -28,7 +27,32 @@ const generateState = () => {
     return state;
 };
 
-// --- Redirect Handlers (UNCHANGED) ---
+// --- PKCE Utility Functions ---
+// 1. Base64 URL encode utility
+const base64UrlEncode = (array: Uint8Array) => {
+    return btoa(String.fromCharCode.apply(null, Array.from(array)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+};
+
+// 2. Generate Code Verifier and Code Challenge
+const generatePkce = async () => {
+    // Generate a random string (code verifier)
+    const codeVerifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    
+    // Hash the code verifier (code challenge)
+    const encoder = new TextEncoder();
+    const data = encoder.encode(codeVerifier);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    const codeChallenge = base64UrlEncode(new Uint8Array(hash));
+
+    return { codeVerifier, codeChallenge };
+};
+// --- END PKCE Utility Functions ---
+
+
+// --- Redirect Handlers ---
 const handleConnectMeta = (platform: 'instagram' | 'facebook') => {
     if (!META_APP_ID || !META_REDIRECT_BASE) {
         alert("ERROR: Please configure Meta credentials in .env.local");
@@ -72,71 +96,87 @@ const handleConnectLinkedIn = () => {
     window.location.href = linkedInUrl;
 };
 
-// 🚀 NEW: YouTube Connect Handler
+// 🚀 YouTube Connect Handler (UNCHANGED)
 const handleConnectYoutube = () => {
     if (!GOOGLE_CLIENT_ID || !YOUTUBE_REDIRECT_URI) {
         alert("ERROR: YouTube credentials not configured in .env.local");
         return;
     }
     const state = generateState();
-    const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
+const scopes = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly';
     
     const youtubeUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
         `client_id=${GOOGLE_CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(YOUTUBE_REDIRECT_URI)}` +
         `&response_type=code` +
         `&scope=${encodeURIComponent(scopes)}` + 
-        `&access_type=offline` + // Necessary to get a refresh token
+        `&access_type=offline` + 
         `&state=${state}`;
         
     window.location.href = youtubeUrl;
 };
 
-// 🚀 NEW: Snapchat Connect Handler
-const handleConnectSnapchat = () => {
+// 🚀 NEW: Snapchat Connect Handler (UPDATED FOR PKCE)
+const handleConnectSnapchat = async () => { // Function must be async now
     if (!SNAPCHAT_CLIENT_ID || !SNAPCHAT_REDIRECT_URI) {
         alert("ERROR: Snapchat credentials not configured in .env.local");
         return;
     }
+
+    // 1. Generate State and PKCE
     const state = generateState();
-    const scopes = 'user.display_name,user.id,user.bitmoji.avatar'; // Basic scopes for user ID
+    // 🛑 PKCE Logic
+    const { codeVerifier, codeChallenge } = await generatePkce();
+
+    // 2. Store Verifier in localStorage (backend will need this)
+    localStorage.setItem('snapchat_code_verifier', codeVerifier);
+
+    // 3. Using full URL scopes as recommended by documentation
+    const scopes = 'https://auth.snapchat.com/oauth2/api/user.display_name https://auth.snapchat.com/oauth2/api/user.external_id https://auth.snapchat.com/oauth2/api/user.bitmoji.avatar'; 
     
     const snapchatUrl = `https://accounts.snapchat.com/login/oauth2/authorize?` +
         `client_id=${SNAPCHAT_CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(SNAPCHAT_REDIRECT_URI)}` +
         `&response_type=code` +
         `&scope=${encodeURIComponent(scopes)}` + 
-        `&state=${state}`;
+        `&state=${state}` +
+        `&code_challenge=${codeChallenge}` + // 🛑 PKCE ADDED
+        `&code_challenge_method=S256`;     // 🛑 PKCE ADDED
         
     window.location.href = snapchatUrl;
 };
 
-// 🚀 NEW: Twitter Connect Handler (Simplified for PKCE complexity)
-const handleConnectTwitter = () => {
+// 🚀 NEW: Twitter Connect Handler (UPDATED FOR PKCE)
+const handleConnectTwitter = async () => { // Function must be async now
     if (!TWITTER_CLIENT_ID || !TWITTER_REDIRECT_URI) {
         alert("ERROR: Twitter credentials not configured in .env.local");
         return;
     }
     
-    // ⚠️ NOTE: This simplified client-side handler omits the secure PKCE flow 
-    // (code_verifier and code_challenge generation) for brevity. 
-    // Full production code MUST implement PKCE.
     const state = generateState();
-    const scopes = 'users.read tweet.read followers.read';
+    // 🛑 PKCE Logic
+    const { codeVerifier, codeChallenge } = await generatePkce();
+
+    // Store verifier for backend retrieval
+    localStorage.setItem('twitter_code_verifier', codeVerifier); 
     
+    const scopes = 'users.read tweet.read followers.read offline.access'; // offline.access is necessary for refresh token
+
     const twitterUrl = `https://twitter.com/i/oauth2/authorize?` +
         `response_type=code` +
         `&client_id=${TWITTER_CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(TWITTER_REDIRECT_URI)}` +
         `&scope=${encodeURIComponent(scopes)}` +
-        `&state=${state}`; // PKCE requires code_challenge too
+        `&state=${state}` +
+        `&code_challenge=${codeChallenge}` + // 🛑 PKCE ADDED
+        `&code_challenge_method=S256`;     // 🛑 PKCE ADDED
 
     window.location.href = twitterUrl;
 };
 
 
 // =================================================================
-// 🚀 NEW COMPONENT: SocialProfileDisplay (Data Fetching and Display)
+// 🚀 NEW COMPONENT: SocialProfileDisplay (Data Fetching and Display) (UNCHANGED)
 // =================================================================
 interface SocialAccountData {
     platform: string;
@@ -145,7 +185,6 @@ interface SocialAccountData {
     lastSynced: string;
 }
 
-// 💡 UPDATE: Interface to include all 6 platforms
 const ALL_PLATFORMS = ['linkedin', 'instagram', 'facebook', 'youtube', 'snapchat', 'twitter'] as const;
 type PlatformKey = typeof ALL_PLATFORMS[number];
 
@@ -158,12 +197,9 @@ const SocialProfileDisplay = ({ platform }: { platform: PlatformKey }) => {
         setLoading(true);
         setError(null);
         try {
-            // Call the new GET API route
             const result = await fetchAccountDetails(platform);
-            // Assuming the backend returns 'followersCount' etc.
             setData(result); 
         } catch (err: any) {
-            // Handle 404 (Not Connected) gracefully
             if (err.message.includes('404')) {
                 setError(`${platform.charAt(0).toUpperCase() + platform.slice(1)} not connected.`);
             } else {
@@ -175,25 +211,22 @@ const SocialProfileDisplay = ({ platform }: { platform: PlatformKey }) => {
     };
 
     useEffect(() => {
-        // Load data on component mount/reload
         loadData();
     }, [platform]);
 
     if (loading) return <div style={{ padding: '10px', color: '#0A66C2' }}>Loading {platform} data...</div>;
     
-    // Display if not connected
     if (error && error.includes('not connected')) return <div style={{ color: '#888', padding: '10px', border: '1px dashed #ccc', borderRadius: '5px', marginTop: '10px' }}>{error}</div>;
     if (error) return <div style={{ color: '#f44336', padding: '10px', border: '1px solid #f44336', borderRadius: '5px', marginTop: '10px' }}>Error: {error}</div>;
     if (!data || !data.platform) return null;
 
-    // Display Data
     const icon = {
         'linkedin': '💼',
         'instagram': '📸',
         'facebook': '📘',
-        'youtube': '▶️', // ✅ NEW ICON
-        'snapchat': '👻', // ✅ NEW ICON
-        'twitter': '🐦'   // ✅ NEW ICON
+        'youtube': '▶️',
+        'snapchat': '👻',
+        'twitter': '🐦'
     }[platform];
 
     return (
@@ -213,7 +246,7 @@ const SocialProfileDisplay = ({ platform }: { platform: PlatformKey }) => {
 
 
 // =================================================================
-// MAIN COMPONENT (UserStatus)
+// MAIN COMPONENT (UserStatus) (UNCHANGED)
 // =================================================================
 
 export default function UserStatus() {
@@ -224,19 +257,15 @@ export default function UserStatus() {
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
     const [loading, setLoading] = useState(false);
 
-    // Key to force reload SocialProfileDisplay components after a sync or redirect
     const [syncKey, setSyncKey] = useState(0); 
     
     useEffect(() => {
         setToken(getToken());
 
-        // Check for success redirect from backend (after OAuth flow)
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('sync_status')) {
             alert(`Sync Success: ${urlParams.get('sync_status')}`);
-            // Force re-render of profile section to fetch new data
             setSyncKey(prev => prev + 1); 
-            // Clean up the URL (remove the query parameter)
             window.history.replaceState({}, document.title, window.location.pathname);
         }
     }, []);
@@ -252,7 +281,7 @@ export default function UserStatus() {
                 alert("Login Successful!");
             }
             setToken(getToken());
-            setSyncKey(prev => prev + 1); // Reload profiles after successful login/registration
+            setSyncKey(prev => prev + 1);
         } catch (error: any) {
             alert(`Authentication Failed: ${error.message}`);
         } finally {
@@ -263,10 +292,9 @@ export default function UserStatus() {
     const handleLogout = () => {
         logout();
         setToken(null);
-        setSyncKey(0); // Reset profile view
+        setSyncKey(0);
     };
 
-    // 💡 UPDATE: handleSync function signature to include all platforms
     const handleSync = async (platform: PlatformKey) => {
         if (!token) {
             alert("Please login first.");
@@ -275,7 +303,7 @@ export default function UserStatus() {
         try {
             await syncSocialAccount(platform);
             alert(`${platform.charAt(0).toUpperCase() + platform.slice(1)} sync successful!`);
-            setSyncKey(prev => prev + 1); // Force reload profile data after manual sync
+            setSyncKey(prev => prev + 1);
         } catch (error: any) {
             alert(`Sync Failed: ${error.message}`);
         }
@@ -308,7 +336,6 @@ export default function UserStatus() {
                         <button onClick={handleConnectLinkedIn} style={{ padding: '15px', background: '#0A66C2', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>
                             💼 Connect LinkedIn
                         </button>
-                        {/* ✅ NEW CONNECT BUTTONS */}
                         <button onClick={handleConnectYoutube} style={{ padding: '15px', background: '#FF0000', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>
                             ▶️ Connect YouTube
                         </button>
@@ -323,12 +350,10 @@ export default function UserStatus() {
                     <hr />
 
                     <h3>📊 Connected Profiles</h3>
-                    {/* 🚀 PROFILES SECTION: Key forces re-render when syncKey changes */}
                     <div key={syncKey} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <SocialProfileDisplay platform="linkedin" />
                         <SocialProfileDisplay platform="instagram" />
                         <SocialProfileDisplay platform="facebook" />
-                        {/* ✅ NEW PROFILE DISPLAYS */}
                         <SocialProfileDisplay platform="youtube" />
                         <SocialProfileDisplay platform="snapchat" />
                         <SocialProfileDisplay platform="twitter" />
@@ -347,7 +372,6 @@ export default function UserStatus() {
                         <button onClick={() => handleSync('linkedin')} style={{ padding: '10px 15px', background: '#2196F3', color: 'white', border: 'none' }}>
                             Sync LinkedIn
                         </button>
-                        {/* ✅ NEW SYNC BUTTONS */}
                         <button onClick={() => handleSync('youtube')} style={{ padding: '10px 15px', background: '#2196F3', color: 'white', border: 'none' }}>
                             Sync YouTube
                         </button>
