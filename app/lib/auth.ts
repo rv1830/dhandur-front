@@ -4,48 +4,37 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // --- Helper Functions for Client-Side Storage ---
 
-export const logout = () => {
-    localStorage.removeItem('token');
-};
-
-export const getToken = (): string | null => {
-    if (typeof window !== 'undefined') {
-        return localStorage.getItem('token');
-    }
-    return null;
-};
-
-export const getAuthHeaders = (): HeadersInit => {
-    const token = getToken();
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
+// NOTE: This function is kept ONLY for the legacy social callback flow which requires 
+// the JWT in a query parameter for backend verification (handleCallback).
+export const getClientToken = (): string | null => {
+    // Assuming you use localStorage for this specific, temporary purpose.
+    return typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 };
 
 // --- API Functions (Authentication & Sync) ---
 
-// Real Login API Call (existing)
+// @desc Login: Sets HTTP-only cookie on the client
 export const login = async (email: string, password: string): Promise<void> => {
-    // ... (existing login logic)
-    const response = await fetch(`${API_URL}/api/users/login`, {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        credentials: 'include', // CRITICAL: Sends and receives cookies
     });
 
     if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Login failed.');
     }
-
-    const data = await response.json();
-    localStorage.setItem('token', data.token); // Store the REAL token
+    await response.json(); // Consumes body, but ignores token field.
 };
 
-// Real Register API Call (existing)
+// @desc Register: Sets HTTP-only cookie on the client
 export const register = async (email: string, password: string, userType: 'BRAND' | 'INFLUENCER' | 'ADMIN'): Promise<void> => {
-    // ... (existing register logic)
-    const response = await fetch(`${API_URL}/api/users`, {
+    const response = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password, userType }),
     });
 
@@ -53,20 +42,14 @@ export const register = async (email: string, password: string, userType: 'BRAND
         const errorData = await response.json();
         throw new Error(errorData.message || 'Registration failed.');
     }
-
-    const data = await response.json();
-    localStorage.setItem('token', data.token); // Store the REAL token
+    await response.json();
 };
 
-
-// Function to call the sync endpoint (existing)
+// @desc Sync: Calls a protected route
 export const syncSocialAccount = async (platform: string) => {
     const response = await fetch(`${API_URL}/api/social/sync/${platform}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders(),
-        },
+        credentials: 'include', // Sends HTTP-only cookie
     });
 
     if (!response.ok) {
@@ -77,11 +60,11 @@ export const syncSocialAccount = async (platform: string) => {
     return response.json();
 };
 
-// 🚀 NEW FUNCTION: Fetch Social Account Details
+// @desc Fetch Details: Calls a protected route
 export const fetchAccountDetails = async (platform: string) => {
     const response = await fetch(`${API_URL}/api/social/account/${platform}`, {
         method: 'GET',
-        headers: getAuthHeaders(), // Only Authorization header needed
+        credentials: 'include', // Sends HTTP-only cookie
     });
 
     if (!response.ok) {
@@ -90,4 +73,34 @@ export const fetchAccountDetails = async (platform: string) => {
     }
 
     return response.json();
+};
+
+// @desc Logout: Clears HTTP-only cookie on the backend
+export const handleBackendLogout = async () => {
+    const response = await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include', // Sends HTTP-only cookie to be cleared
+    });
+
+    if (!response.ok) {
+        console.error("Backend logout failed, proceeding with client clear.");
+    }
+    // The backend clears the actual HTTP-only cookie.
+};
+
+// @desc Utility: Function to handle social login with ID token (if using POST /api/auth/google)
+// NOTE: This function is not used in the current UserStatus.tsx due to the redirection flow.
+export const socialLoginWithIdToken = async (idToken: string, userType: string): Promise<void> => {
+    const response = await fetch(`${API_URL}/api/auth/google`, { // POST route
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ idToken, userType }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Social Login failed.');
+    }
+    await response.json();
 };
